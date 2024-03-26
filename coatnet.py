@@ -22,6 +22,16 @@ class PreNorm(nn.Module):
         return self.fn(self.norm(x), **kwargs)
 
 
+class PreNormMBConv(nn.Module):
+    def __init__(self, dim, fn, norm):
+        super().__init__()
+        self.norm = norm(*dim)
+        self.fn = fn
+
+    def forward(self, x, **kwargs):
+        return self.fn(self.norm(x), **kwargs)
+
+
 class SE(nn.Module):
     def __init__(self, inp, oup, expansion=0.25):
         super().__init__()
@@ -61,6 +71,7 @@ class MBConv(nn.Module):
         self.downsample = downsample
         stride = 1 if self.downsample == False else 2
         hidden_dim = int(inp * expansion)
+        num_groups = 4
 
         if self.downsample:
             self.pool = nn.MaxPool2d(3, 2, 1)
@@ -72,32 +83,32 @@ class MBConv(nn.Module):
                 nn.Conv2d(
                     hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False
                 ),
-                nn.BatchNorm2d(hidden_dim),
+                nn.GroupNorm(num_groups, hidden_dim),
                 nn.GELU(),
                 # pw-linear
                 nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup),
+                nn.GroupNorm(num_groups, oup),
             )
         else:
             self.conv = nn.Sequential(
                 # pw
                 # down-sample in the first conv
                 nn.Conv2d(inp, hidden_dim, 1, stride, 0, bias=False),
-                nn.BatchNorm2d(hidden_dim),
+                nn.GroupNorm(num_groups, hidden_dim),
                 nn.GELU(),
                 # dw
                 nn.Conv2d(
                     hidden_dim, hidden_dim, 3, 1, 1, groups=hidden_dim, bias=False
                 ),
-                nn.BatchNorm2d(hidden_dim),
+                nn.GroupNorm(num_groups, hidden_dim),
                 nn.GELU(),
                 SE(inp, hidden_dim),
                 # pw-linear
                 nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup),
+                nn.GroupNorm(num_groups, oup),
             )
 
-        self.conv = PreNorm(inp, self.conv, nn.BatchNorm2d)
+        self.conv = PreNormMBConv([num_groups, inp], self.conv, nn.GroupNorm)
 
     def forward(self, x):
         if self.downsample:
